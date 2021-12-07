@@ -16,6 +16,14 @@ If features don't exist, linear.py will infer features from SSL model (This can 
 
 * If features exist in results folder and yet you want to re-infer them from SSL model, use --infer-new argument
 
+* Barlow Twins: Just send --model arg as "barlow"
+
+* Don't forget to rename aircraft dataset folder
+
+* Download Cars dataset from https://ai.stanford.edu/~jkrause/cars/car_dataset.html (both test and train) and extract it in ../data/Cars
+
+
+
 linear.py outputs:
 
 * X_trainval_feature.pkl: size:(n_samples, n_features) Features inferred from our SSL model for train dataset.

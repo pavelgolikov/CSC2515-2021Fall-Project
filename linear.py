@@ -177,7 +177,7 @@ class LinearTester():
         model.eval()
         feature_vector = []
         labels_vector = []
-        for data in tqdm(loader, desc=f'Computing features for {split} set'):
+        for data in tqdm(loader, desc=f'Computing features for {split}'):
             batch_x, batch_y = data
             batch_x = batch_x.to(self.device)
             labels_vector.extend(np.array(batch_y))
@@ -439,12 +439,73 @@ def get_test_loader(dset,
 
     return data_loader
 
-def prepare_data(dset, data_dir, batch_size, transform, dataset_size = 100):
+def prepare_data(dset, data_dir, batch_size, transform, dataset_size = 100, shuffle_train=True):
     train_loader, val_loader, trainval_loader = get_train_valid_loader(dset, data_dir,
-                                                batch_size, random_seed=0, transform=transform, dataset_size=dataset_size)
+                                                batch_size, shuffle=shuffle_train, random_seed=0, transform=transform, dataset_size=dataset_size)
     test_loader = get_test_loader(dset, data_dir, batch_size, transform, dataset_size)
 
     return train_loader, val_loader, trainval_loader, test_loader
+
+
+def get_model(model_name, args):
+    if model_name == "barlow":
+        model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
+        model.fc = Identity()
+    else:
+        model = ResNetBackbone(model_name)
+    model = model.to(args.device)
+    return model
+
+
+def extract_aug_features():
+    for model_name in tqdm(["byol", "swav", "moco-v2", "barlow",
+                            # "simclr-v2"
+                            ]):
+        model = get_model(model_name, args)
+        for dataset in [
+            "cifar10",
+            "aircraft",  # YK: make sure you have renamed the downloaded file
+            "cars"
+        ]:
+            dset, data_dir, num_classes, metric = LINEAR_DATASETS[dataset]
+            for aug in ["None", "RandomCrop", "RandomFlip", "RandomRotation", "ColourJitter"]:
+                transform = get_transform(args.image_size, args.norm, aug)
+                # get dataset loaders no shuffling to ensure all features map 1-1 across augmentations
+                train_loader, val_loader, trainval_loader, test_loader = \
+                    prepare_data(dset, data_dir, args.batch_size, transform, shuffle_train=False)
+                features_dir = os.path.join(os.getcwd(), "features", model_name, dataset, aug)
+                if not os.path.exists(features_dir):
+                    os.makedirs(features_dir)
+
+                print(f"Dumping features in the directory: {features_dir}")
+                # Use tester's inference method for extracting features
+                tester = LinearTester(model, train_loader, val_loader, trainval_loader, test_loader, args.batch_size,
+                                      metric, args.device, num_classes, features_dir,
+                                      wd_range=torch.logspace(-6, 5, args.wd_values))
+
+                # compute and dump
+                info_str = f'split: train; model: {model}; dataset: {dataset}; aug: {aug}'
+                X_train_feature, y_train = tester._inference(train_loader, model, info_str)
+                pickle.dump(X_train_feature, open(os.path.join(features_dir, "X_train_feature.pkl"), "wb"))
+                pickle.dump(y_train, open(os.path.join(features_dir, "y_train.pkl"), "wb"))
+                print(f"Dumped train features!")
+
+                info_str = f'split: val; model: {model}; dataset: {dataset}; aug: {aug}'
+                X_val_feature, y_val = tester._inference(val_loader, model, info_str)
+                pickle.dump(X_val_feature, open(os.path.join(features_dir, "X_val_feature.pkl"), "wb"))
+                pickle.dump(y_val, open(os.path.join(features_dir, "y_val.pkl"), "wb"))
+                print(f"Dumped val features!")
+
+                # X_trainval_feature, y_trainval = tester._inference(trainval_loader, model, 'trainval')
+                # pickle.dump(X_trainval_feature, open(os.path.join(features_dir, "X_trainval_feature.pkl"), "wb"))
+                # pickle.dump(y_trainval, open(os.path.join(features_dir, "y_trainval.pkl"), "wb"))
+                # print(f"Dumped trainval features!")
+
+                info_str = f'split: test; model: {model}; dataset: {dataset}; aug: {aug}'
+                X_test_feature, y_test = tester._inference(test_loader, model, info_str)
+                pickle.dump(X_test_feature, open(os.path.join(features_dir, "X_test_feature.pkl"), "wb"))
+                pickle.dump(y_test, open(os.path.join(features_dir, "y_test.pkl"), "wb"))
+                print(f"Dumped test features!")
 
 
 # name: {class, root, num_classes, metric}
@@ -481,12 +542,19 @@ if __name__ == "__main__":
     parser.add_argument('-s', '--dataset-size', type=int, default=100, help='percentage of the train and test dataset to use')
     parser.add_argument('-f', '--infer-new', action='store_true', default=False,
                         help='re-infers new features from SSL model (takes long time)')
+    parser.add_argument('-eaf', '--extract_aug_features', action='store_true', default=False, help='Extracts features for CIFAR10, Aircraft, Cars')
 
     args = parser.parse_args()
     args.norm = not args.no_norm
     pprint(args)
     torch.cuda.empty_cache()
 
+    if args.extract_aug_features:
+        extract_aug_features()
+        exit()
+
+    # load pretrained model
+    model = get_model(args.model, args)
 
     # load dataset
     dset, data_dir, num_classes, metric = LINEAR_DATASETS[args.dataset]
@@ -503,13 +571,6 @@ if __name__ == "__main__":
     if not os.path.exists(results_dir):
         os.makedirs(results_dir, exist_ok=True)
 
-    # load pretrained model
-    if args.model == "barlow":
-        model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
-        model.fc = Identity()
-    else:
-        model = ResNetBackbone(args.model)
-    model = model.to(args.device)
 
     # evaluate model on dataset by fitting logistic regression
     tester = LinearTester(model, train_loader, val_loader, trainval_loader, test_loader, args.batch_size,
