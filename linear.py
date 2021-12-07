@@ -31,6 +31,14 @@ from datasets.flowers import Flowers
 from datasets.aircraft import Aircraft
 from datasets.caltech101 import Caltech101
 
+# Identity mapping used to delete the last layer from Barlow-Twins model
+class Identity(torch.nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
 
 def voc_ap(rec, prec):
     """
@@ -42,11 +50,13 @@ def voc_ap(rec, prec):
     """
     ap = 0.
     for t in np.linspace(0, 1, 11):
+
         if np.sum(rec >= t) == 0:
             p = 0
         else:
             p = np.max(prec[rec >= t])
         ap += p / 11.
+
     return ap
 
 def voc_eval_cls(y_true, y_pred):
@@ -494,7 +504,11 @@ if __name__ == "__main__":
         os.makedirs(results_dir, exist_ok=True)
 
     # load pretrained model
-    model = ResNetBackbone(args.model)
+    if args.model == "barlow":
+        model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
+        model.fc = Identity()
+    else:
+        model = ResNetBackbone(args.model)
     model = model.to(args.device)
 
     # evaluate model on dataset by fitting logistic regression
