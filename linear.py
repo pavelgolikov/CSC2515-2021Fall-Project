@@ -458,8 +458,9 @@ def get_model(model_name, args):
 
 
 def extract_aug_features():
-    for model_name in tqdm(["byol", "swav", "moco-v2", "barlow",
-                            # "simclr-v2"
+    for model_name in tqdm([
+                            "byol", "swav", "moco-v2", "barlow",
+                            "simclr-v2"
                             ]):
         model = get_model(model_name, args)
         for dataset in [
@@ -484,13 +485,13 @@ def extract_aug_features():
                                       wd_range=torch.logspace(-6, 5, args.wd_values))
 
                 # compute and dump
-                info_str = f'split: train; model: {model}; dataset: {dataset}; aug: {aug}'
+                info_str = f'split: train; model: {model_name}; dataset: {dataset}; aug: {aug}'
                 X_train_feature, y_train = tester._inference(train_loader, model, info_str)
                 pickle.dump(X_train_feature, open(os.path.join(features_dir, "X_train_feature.pkl"), "wb"))
                 pickle.dump(y_train, open(os.path.join(features_dir, "y_train.pkl"), "wb"))
                 print(f"Dumped train features!")
 
-                info_str = f'split: val; model: {model}; dataset: {dataset}; aug: {aug}'
+                info_str = f'split: val; model: {model_name}; dataset: {dataset}; aug: {aug}'
                 X_val_feature, y_val = tester._inference(val_loader, model, info_str)
                 pickle.dump(X_val_feature, open(os.path.join(features_dir, "X_val_feature.pkl"), "wb"))
                 pickle.dump(y_val, open(os.path.join(features_dir, "y_val.pkl"), "wb"))
@@ -501,7 +502,7 @@ def extract_aug_features():
                 # pickle.dump(y_trainval, open(os.path.join(features_dir, "y_trainval.pkl"), "wb"))
                 # print(f"Dumped trainval features!")
 
-                info_str = f'split: test; model: {model}; dataset: {dataset}; aug: {aug}'
+                info_str = f'split: test; model: {model_name}; dataset: {dataset}; aug: {aug}'
                 X_test_feature, y_test = tester._inference(test_loader, model, info_str)
                 pickle.dump(X_test_feature, open(os.path.join(features_dir, "X_test_feature.pkl"), "wb"))
                 pickle.dump(y_test, open(os.path.join(features_dir, "y_test.pkl"), "wb"))
