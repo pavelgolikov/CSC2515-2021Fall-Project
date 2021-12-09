@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Dec  8 13:40:36 2021
-
-@author: Pranav
-"""
 
 import os
 import numpy as np
@@ -42,25 +37,6 @@ def plot_overall_accuracy(Acc_df, directory):
     plt.show()
     
     
-
-'''
-df_pivot1 = pd.pivot_table(
-	Overall_Acc_df,
-	values="Overall Accuracy",
-	index="Dataset",
-	columns="Model")
-ax = df_pivot1.plot(kind="bar")
-fig1 = ax.get_figure()
-fig1.set_size_inches(7, 6)
-ax.set_xlabel("Dataset")
-ax.set_ylabel("Accuracy")
-ax.legend(loc="best", fontsize=9)
-ax.set_title('Overall Accuracy per Dataset for each SSL Model')
-ax.tick_params(axis='x', rotation=0)
-ax.set_yticks([i for i in range (100) if i%5 == 0])
-plt.show()
-'''
-
 #Function to obtain per class accuracy for each model
 def get_perclass_acc(model, dataset):
     path = r"results\{}\{}\None".format(model,dataset)
@@ -135,7 +111,7 @@ def main():
             X = np.arange(len(model_acc_pc))
             Y = model_acc_pc
             Num_classes = len(model_acc_pc)
-            plt.plot(X, Y, label = Model_names[models.index(model)], marker=".")
+            plt.plot(X, Y, label = Model_names[models.index(model)], marker=".", linewidth=0.5)
             plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
             plt.xlabel("Class (Total Number of Classes: {})".format(Num_classes))
             plt.ylabel("Accuracy")
