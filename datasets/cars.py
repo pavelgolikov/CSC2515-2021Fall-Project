@@ -52,6 +52,7 @@ class Cars(ImageFolder):
         elif split == 'test':
             annot_file = 'cars_test_annos_withlabels.mat'
         image_ids, labels, classes, class_to_idx = make_dataset(root, split, os.path.join(root, 'devkit', annot_file))
+        self.class_to_idx = class_to_idx
         self.samples = list(zip(image_ids, labels))
 
     def __getitem__(self, index):

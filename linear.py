@@ -8,8 +8,9 @@ from pprint import pprint
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, ConcatDataset
-from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.data.sampler import SubsetRandomSampler, SequentialSampler
 from torchvision import datasets, transforms, models
+import pandas as pd
 
 import PIL
 import numpy as np
@@ -20,6 +21,7 @@ from sklearn.linear_model import LogisticRegression as LogReg
 from sklearn.metrics import confusion_matrix, precision_recall_curve, pairwise_distances
 from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
+import matplotlib.pyplot as plt
 
 from datasets.dtd import DTD
 from datasets.pets import Pets
@@ -315,10 +317,10 @@ def get_train_valid_loader(dset,
                            num_workers=1,
                            pin_memory=True,
                            dataset_size=100):
-    """
+    """ using CUDA, num_workers should be set to 1 and pin_memory to True.
     Utility function for loading and returning train and valid
     multi-process iterators over the CIFAR-10 dataset.
-    If using CUDA, num_workers should be set to 1 and pin_memory to True.
+    If
     Params
     ------
     - dset: dataset class to load.
@@ -378,9 +380,16 @@ def get_train_valid_loader(dset,
         if dataset_size < 100:
             train_idx, valid_idx = train_idx[:int((dataset_size/100) * len(train_idx))], valid_idx[:int((dataset_size/100) * len(valid_idx))]
         trainval_idx = train_idx + valid_idx
-        train_sampler = SubsetRandomSampler(train_idx)
-        valid_sampler = SubsetRandomSampler(valid_idx)
-        trainval_sampler = SubsetRandomSampler(trainval_idx)
+
+        if shuffle:
+            train_sampler = SubsetRandomSampler(train_idx)
+            valid_sampler = SubsetRandomSampler(valid_idx)
+            trainval_sampler = SubsetRandomSampler(trainval_idx)
+        else:
+            train_sampler = SequentialSampler(train_idx)
+            valid_sampler = SequentialSampler(valid_idx)
+            trainval_sampler = SequentialSampler(trainval_idx)
+
 
         train_loader = DataLoader(
             train_dataset, batch_size=batch_size, sampler=train_sampler,
@@ -439,6 +448,7 @@ def get_test_loader(dset,
 
     return data_loader
 
+
 def prepare_data(dset, data_dir, batch_size, transform, dataset_size = 100, shuffle_train=True):
     train_loader, val_loader, trainval_loader = get_train_valid_loader(dset, data_dir,
                                                 batch_size, shuffle=shuffle_train, random_seed=0, transform=transform, dataset_size=dataset_size)
@@ -458,26 +468,18 @@ def get_model(model_name, args):
 
 
 def extract_aug_features():
-    for model_name in tqdm([
-                            "byol", "swav", "moco-v2", "barlow",
-                            "simclr-v2"
-                            ]):
+    for model_name in tqdm(["byol", "swav", "moco-v2", "barlow", "simclr-v2"]):
         model = get_model(model_name, args)
-        for dataset in [
-            "cifar10",
-            "aircraft",  # YK: make sure you have renamed the downloaded file
-            "cars"
-        ]:
+        for dataset in ["cifar10", "aircraft", "cars"]:
             dset, data_dir, num_classes, metric = LINEAR_DATASETS[dataset]
             for aug in ["None", "RandomCrop", "RandomFlip", "RandomRotation", "ColourJitter"]:
                 transform = get_transform(args.image_size, args.norm, aug)
                 # get dataset loaders no shuffling to ensure all features map 1-1 across augmentations
-                train_loader, val_loader, trainval_loader, test_loader = \
-                    prepare_data(dset, data_dir, args.batch_size, transform, shuffle_train=False)
+                train_loader, val_loader, trainval_loader, test_loader = prepare_data(dset, data_dir, args.batch_size,
+                transform, shuffle_train=False)
                 features_dir = os.path.join(os.getcwd(), "features", model_name, dataset, aug)
                 if not os.path.exists(features_dir):
                     os.makedirs(features_dir)
-
                 print(f"Dumping features in the directory: {features_dir}")
                 # Use tester's inference method for extracting features
                 tester = LinearTester(model, train_loader, val_loader, trainval_loader, test_loader, args.batch_size,
@@ -497,16 +499,89 @@ def extract_aug_features():
                 pickle.dump(y_val, open(os.path.join(features_dir, "y_val.pkl"), "wb"))
                 print(f"Dumped val features!")
 
-                # X_trainval_feature, y_trainval = tester._inference(trainval_loader, model, 'trainval')
-                # pickle.dump(X_trainval_feature, open(os.path.join(features_dir, "X_trainval_feature.pkl"), "wb"))
-                # pickle.dump(y_trainval, open(os.path.join(features_dir, "y_trainval.pkl"), "wb"))
-                # print(f"Dumped trainval features!")
+                X_trainval_feature, y_trainval = tester._inference(trainval_loader, model, 'trainval')
+                pickle.dump(X_trainval_feature, open(os.path.join(features_dir, "X_trainval_feature.pkl"), "wb"))
+                pickle.dump(y_trainval, open(os.path.join(features_dir, "y_trainval.pkl"), "wb"))
+                print(f"Dumped trainval features!")
 
                 info_str = f'split: test; model: {model_name}; dataset: {dataset}; aug: {aug}'
                 X_test_feature, y_test = tester._inference(test_loader, model, info_str)
                 pickle.dump(X_test_feature, open(os.path.join(features_dir, "X_test_feature.pkl"), "wb"))
                 pickle.dump(y_test, open(os.path.join(features_dir, "y_test.pkl"), "wb"))
                 print(f"Dumped test features!")
+
+
+def plot_bars(model, dataset, aug_stats, class_labels, plots_dir):
+    for dist_type in aug_stats["RandomCrop"].keys():
+        plt.clf()
+        plotdata = pd.DataFrame({aug: aug_stats[aug][dist_type][:15] for aug in aug_stats}, index=class_labels[:15])
+        plotdata.plot(kind="bar", rot=90, figsize=(12,8))
+        plt.title(f"{dist_type} distance per-class for {dataset} with {model}")
+        plt.xlabel("Classes")
+        plt.ylabel(f"{dist_type} distance")
+        path = os.path.join(plots_dir, f"{dist_type}.png")
+        plt.savefig(path)
+        print(f"Dumped: {path}")
+
+
+def plot_aug_features():
+    for model_name in tqdm(["byol", "swav", "moco-v2", "barlow", "simclr-v2"]):
+        for dataset in ["cifar10", "aircraft", "cars"]:
+            vanilla_features = []
+            vanilla_labels = []
+            vanilla_features_dir = os.path.join(os.getcwd(), "features", model_name, dataset, "None")
+            for split in ["train", "val"]:
+                features = pickle.load(open(os.path.join(vanilla_features_dir, f"X_{split}_feature.pkl"), "rb"))
+                labels = pickle.load(open(os.path.join(vanilla_features_dir, f"y_{split}.pkl"), "rb"))
+                vanilla_features.append(features)
+                vanilla_labels.append(labels)
+            vanilla_features = np.concatenate(vanilla_features, axis=0)
+            vanilla_labels = np.concatenate(vanilla_labels, axis=0)
+
+            plots_dir = os.path.join("plots", model_name, dataset)
+            os.makedirs(plots_dir, exist_ok=True)
+
+            aug_stats = {}
+            for aug in ["RandomCrop", "RandomFlip", "RandomRotation", "ColourJitter"]:
+                dset, data_dir, num_classes, metric = LINEAR_DATASETS[dataset]
+                transform = get_transform(args.image_size, args.norm, aug)
+                train_loader, val_loader, trainval_loader, test_loader = prepare_data(dset, data_dir, args.batch_size,
+                transform, shuffle_train=False)
+
+                features_dir = os.path.join(os.getcwd(), "features", model_name, dataset, aug)
+                aug_features = []
+                aug_labels = []
+                for split in ["train", "val"]:
+                    features = pickle.load(open(os.path.join(features_dir, f"X_{split}_feature.pkl"), "rb"))
+                    labels = pickle.load(open(os.path.join(features_dir, f"y_{split}.pkl"), "rb"))
+                    aug_features.append(features)
+                    aug_labels.append(labels)
+                aug_features = np.concatenate(aug_features, axis=0)
+                aug_labels = np.concatenate(aug_labels, axis=0)
+
+                if not all(vanilla_labels == aug_labels):
+                    import pdb
+                    pdb.set_trace()
+
+                l1 = np.linalg.norm(aug_features - vanilla_features, axis=1, ord=1)
+                l2 = np.linalg.norm(aug_features - vanilla_features, axis=1, ord=2)
+                cos = np.multiply(aug_features, vanilla_features).sum(axis=1) \
+                      / (np.linalg.norm(aug_features, axis=1) * np.linalg.norm(vanilla_features, axis=1))
+
+                aug_stats[aug] = {}
+                classes = np.unique(aug_labels)
+                aug_stats[aug]["L1"] = [np.mean(l1[aug_labels == cls]) for cls in classes]
+                aug_stats[aug]["L2"] = [np.mean(l2[aug_labels == cls]) for cls in classes]
+                aug_stats[aug]["Cosine"] = [1 - np.mean(cos[aug_labels == cls]) for cls in classes]
+                try:
+                    idx_to_class = {v : k for k, v in train_loader.dataset.class_to_idx.items()}
+                except:
+                    import pdb
+                    pdb.set_trace()
+                class_labels = [idx_to_class[cls] for cls in classes]
+
+            # plot figures
+            plot_bars(model_name, dataset, aug_stats, class_labels, plots_dir)
 
 
 # name: {class, root, num_classes, metric}
@@ -544,6 +619,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--infer-new', action='store_true', default=False,
                         help='re-infers new features from SSL model (takes long time)')
     parser.add_argument('-eaf', '--extract_aug_features', action='store_true', default=False, help='Extracts features for CIFAR10, Aircraft, Cars')
+    parser.add_argument('-paf', '--plot_aug_features', action='store_true', default=False, help='Extracts features for CIFAR10, Aircraft, Cars')
 
     args = parser.parse_args()
     args.norm = not args.no_norm
@@ -552,6 +628,11 @@ if __name__ == "__main__":
 
     if args.extract_aug_features:
         extract_aug_features()
+        exit()
+
+    # run after extracting features above!
+    if args.plot_aug_features:
+        plot_aug_features()
         exit()
 
     # load pretrained model
