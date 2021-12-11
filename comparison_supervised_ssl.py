@@ -18,10 +18,33 @@ def compute_class_accuracy(y_test, y_pred_labels):
     test_mean_class_acc = per_class_accuracies.mean()
     return per_class_accuracies, test_mean_class_acc
 
+def load_class_names():
+    meta = pickle.load(open("../data/CIFAR10/cifar-10-batches-py/batches.meta", "rb"))
+    return meta["label_names"]
+
+def faiure_mode_identification(per_class_accuracies, model, dataset):
+    # Prints k class IDs of a dataset with least class accuracies
+    k=3
+    idx_sorted = np.argsort(per_class_accuracies)
+    bottomk_idx = idx_sorted[:k]
+    if dataset == 'cifar10':
+        class_names = load_class_names()
+        bottomk_class_names = np.take(class_names, bottomk_idx)
+    else:
+        bottomk_class_names = bottomk_idx
+    bottomk_acc = np.take(per_class_accuracies, bottomk_idx)
+    print(f"{dataset} - Bottom {k} classes using {model}: {bottomk_class_names} with acc %: {bottomk_acc}")
+    return None
+
 def plot_class_vs_class_accuracy(models_list, per_class_accuracies, dataset):
+    class_names = load_class_names()
     plt.plot(per_class_accuracies,'.')
     plt.title('Comparison of models on class accuracies of ' +str(dataset)+ ' dataset')
-    plt.xlabel("classes")
+    if dataset == 'cifar10':            
+        plt.xticks(range(len(class_names)),class_names, fontsize=7)
+        plt.xlabel("class_names")
+    else:
+        plt.xlabel("class_ID")
     plt.ylabel("Per_class_accuracy %")
     plt.legend(models_list)
 
@@ -46,6 +69,7 @@ def main():
         for model in models_list:
             y_test, y_pred_labels = load_data(model,dataset,augmentation)
             per_class_accuracies, test_mean_class_acc[models_list.index(model),dataset_list.index(dataset)] = compute_class_accuracy(y_test, y_pred_labels)
+            faiure_mode_identification(per_class_accuracies, model, dataset)
             plot_class_vs_class_accuracy(models_list, per_class_accuracies, dataset)
         plt.savefig('results\ '+str(dataset)+'_class_accuracies.jpg', dpi = 500, bbox_inches = 'tight')
         plt.show()
