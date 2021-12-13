@@ -8,7 +8,7 @@ from pprint import pprint
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, ConcatDataset
-from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.data.sampler import SequentialSampler, SubsetRandomSampler
 from torchvision import datasets, transforms, models
 
 import PIL
@@ -97,12 +97,22 @@ class LogisticRegression(nn.Module):
         self.clf.set_params(**d)
 
     @ignore_warnings(category=ConvergenceWarning)
-    def fit_logistic_regression(self, X_train, y_train, X_test, y_test):
+    def fit_logistic_regression(self, X_train, y_train, X_test, y_test, model_name):
         if self.metric == 'accuracy' or self.metric=='mean per-class accuracy':
             self.clf.fit(X_train, y_train)
             y_pred_labels = self.clf.predict(X_test)
             pred_probabilities = self.clf.predict_proba(X_test)
-
+            
+            # compute and save training accuracies per class
+            if args.ensemble:
+                y_pred_labels_train = self.clf.predict(X_train)
+                cm = confusion_matrix(y_train, y_pred_labels_train)
+                cm = cm.diagonal() / cm.sum(axis=1)
+                ensemble_results_dir = os.path.join(os.getcwd(), "results/ensemble")
+                if not os.path.exists(ensemble_results_dir):
+                    os.makedirs(ensemble_results_dir, exist_ok=True)
+                np.savetxt(os.path.join(ensemble_results_dir, model_name + "_class_train_acc.csv"), cm)
+            
             # Dump predictions
             pickle.dump(y_pred_labels, open(os.path.join(self.result_dir, "y_pred_labels.pkl"), "wb"))
             pickle.dump(pred_probabilities, open(os.path.join(self.result_dir, "y_pred_probabilities.pkl"), "wb"))
@@ -115,7 +125,7 @@ class LogisticRegression(nn.Module):
             cm = confusion_matrix(y_test, y_pred_labels)
             cm = cm.diagonal() / cm.sum(axis=1)
             test_mean_class_acc = 100. * cm.mean()
-
+            
             # # Print topk and bottomk per class accuracies
             # per_class_acc = cm * 100.
             # k=3
@@ -132,13 +142,14 @@ class LogisticRegression(nn.Module):
 
             return test_acc, test_mean_class_acc
         else:
-            raise Error(f'Metric {self.metric} not implemented')
+            raise torch.Error(f'Metric {self.metric} not implemented')
 
 
 class LinearTester():
-    def __init__(self, model, train_loader, val_loader, trainval_loader, test_loader, batch_size, metric,
+    def __init__(self, model, model_name, train_loader, val_loader, trainval_loader, test_loader, batch_size, metric,
                  device, num_classes, result_dir, feature_dim=2048, wd_range=None):
         self.model = model
+        self.model_name = model_name
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.trainval_loader = trainval_loader
@@ -150,29 +161,29 @@ class LinearTester():
         self.feature_dim = feature_dim
         self.best_params = {}
         self.result_dir = result_dir
-
+        
         if wd_range is None:
             self.wd_range = torch.logspace(-6, 5, 45)
         else:
             self.wd_range = wd_range
-
+        
         self.classifier = LogisticRegression(self.feature_dim, self.num_classes, self.metric, self.result_dir).to(self.device)
-
+    
     def get_features(self, train_loader, test_loader, model, test=True, infer_new=False):
         if not os.path.exists(os.path.join(self.result_dir, "X_trainval_feature.pkl")) or infer_new:
             X_train_feature, y_train = self._inference(train_loader, model, 'train')
             X_test_feature, y_test = self._inference(test_loader, model, 'test' if test else 'val')
-
+            
             pickle.dump(X_train_feature, open(os.path.join(self.result_dir, "X_trainval_feature.pkl"), "wb"))
             pickle.dump(y_train, open(os.path.join(self.result_dir, "y_trainval.pkl"), "wb"))
             pickle.dump(X_test_feature, open(os.path.join(self.result_dir, "X_test_feature.pkl"), "wb"))
             pickle.dump(y_test, open(os.path.join(self.result_dir, "y_test.pkl"), "wb"))
-
+        
         else:
             X_train_feature, y_train, X_test_feature, y_test = load_features(self.result_dir)
-
+        
         return X_train_feature, y_train, X_test_feature, y_test
-
+    
     def _inference(self, loader, model, split):
         model.eval()
         feature_vector = []
@@ -181,7 +192,7 @@ class LinearTester():
             batch_x, batch_y = data
             batch_x = batch_x.to(self.device)
             labels_vector.extend(np.array(batch_y))
-
+            
             features = model(batch_x)
             feature_vector.extend(features.cpu().detach().numpy())
 
@@ -197,7 +208,8 @@ class LinearTester():
         for wd in tqdm(self.wd_range, desc='Selecting best hyperparameters'):
             C = 1. / wd.item()
             self.classifier.set_params({'C': C})
-            test_acc, test_mean_class_acc  = self.classifier.fit_logistic_regression(X_train_feature, y_train, X_val_feature, y_val)
+            test_acc, test_mean_class_acc  = self.classifier.fit_logistic_regression(X_train_feature, y_train, 
+            X_val_feature, y_val, self.model_name)
 
             if test_acc > best_score:
                 best_score = test_acc
@@ -210,7 +222,8 @@ class LinearTester():
             self.trainval_loader, self.test_loader, self.model, infer_new=infer_new)
 
         self.classifier.set_params({'C': self.best_params['C']})
-        test_acc, test_mean_class_acc = self.classifier.fit_logistic_regression(X_trainval_feature, y_trainval, X_test_feature, y_test)
+        test_acc, test_mean_class_acc = self.classifier.fit_logistic_regression(X_trainval_feature, y_trainval, 
+        X_test_feature, y_test, self.model_name)
 
         return test_acc, test_mean_class_acc, self.best_params['C']
 
@@ -271,7 +284,7 @@ def get_transform(image_size, normalisation, aug="None"):
             transforms.CenterCrop(image_size),
             transforms.ToTensor(),
             normalize])
-
+    
     elif aug == "RandomCrop":
         transform = transforms.Compose([
             transforms.RandomResizedCrop(image_size),
@@ -369,19 +382,25 @@ def get_train_valid_loader(dset,
         num_train = len(train_dataset)
         indices = list(range(num_train))
         split = int(np.floor(valid_size * num_train))
-
+        
         if shuffle:
             np.random.seed(random_seed)
             np.random.shuffle(indices)
-
+        
         train_idx, valid_idx = indices[split:], indices[:split]
         if dataset_size < 100:
             train_idx, valid_idx = train_idx[:int((dataset_size/100) * len(train_idx))], valid_idx[:int((dataset_size/100) * len(valid_idx))]
         trainval_idx = train_idx + valid_idx
-        train_sampler = SubsetRandomSampler(train_idx)
-        valid_sampler = SubsetRandomSampler(valid_idx)
-        trainval_sampler = SubsetRandomSampler(trainval_idx)
-
+        if not args.ensemble:
+            train_sampler = SubsetRandomSampler(train_idx)
+            valid_sampler = SubsetRandomSampler(valid_idx)
+            trainval_sampler = SubsetRandomSampler(trainval_idx)
+        else:
+            print("using ensemble")
+            train_sampler = SequentialSampler(train_idx)
+            valid_sampler = SequentialSampler(valid_idx)
+            trainval_sampler = SequentialSampler(trainval_idx)
+        
         train_loader = DataLoader(
             train_dataset, batch_size=batch_size, sampler=train_sampler,
             num_workers=num_workers, pin_memory=pin_memory,
@@ -395,7 +414,7 @@ def get_train_valid_loader(dset,
             trainval_dataset, batch_size=batch_size, sampler=trainval_sampler,
             num_workers=num_workers, pin_memory=pin_memory,
         )
-
+    
     return train_loader, valid_loader, trainval_loader
 
 
@@ -431,11 +450,19 @@ def get_test_loader(dset,
     indices = list(range(len(dataset)))
     split = int(np.floor((dataset_size/100) * len(dataset)))
     test_idx = indices[:split]
+    
+    if not args.ensemble:
+        data_loader = DataLoader(
+            dataset, batch_size=batch_size, sampler=SubsetRandomSampler(test_idx),
+            num_workers=num_workers, pin_memory=pin_memory,
+        )
+    else:
+        print("using ensemble")
+        data_loader = DataLoader(
+            dataset, batch_size=batch_size, sampler=SequentialSampler(test_idx),
+            num_workers=num_workers, pin_memory=pin_memory,
+        )
 
-    data_loader = DataLoader(
-        dataset, batch_size=batch_size, sampler=SubsetRandomSampler(test_idx),
-        num_workers=num_workers, pin_memory=pin_memory,
-    )
 
     return data_loader
 
@@ -490,18 +517,18 @@ def extract_aug_features():
                 pickle.dump(X_train_feature, open(os.path.join(features_dir, "X_train_feature.pkl"), "wb"))
                 pickle.dump(y_train, open(os.path.join(features_dir, "y_train.pkl"), "wb"))
                 print(f"Dumped train features!")
-
+                
                 info_str = f'split: val; model: {model_name}; dataset: {dataset}; aug: {aug}'
                 X_val_feature, y_val = tester._inference(val_loader, model, info_str)
                 pickle.dump(X_val_feature, open(os.path.join(features_dir, "X_val_feature.pkl"), "wb"))
                 pickle.dump(y_val, open(os.path.join(features_dir, "y_val.pkl"), "wb"))
                 print(f"Dumped val features!")
-
+                
                 # X_trainval_feature, y_trainval = tester._inference(trainval_loader, model, 'trainval')
                 # pickle.dump(X_trainval_feature, open(os.path.join(features_dir, "X_trainval_feature.pkl"), "wb"))
                 # pickle.dump(y_trainval, open(os.path.join(features_dir, "y_trainval.pkl"), "wb"))
                 # print(f"Dumped trainval features!")
-
+                
                 info_str = f'split: test; model: {model_name}; dataset: {dataset}; aug: {aug}'
                 X_test_feature, y_test = tester._inference(test_loader, model, info_str)
                 pickle.dump(X_test_feature, open(os.path.join(features_dir, "X_test_feature.pkl"), "wb"))
@@ -544,39 +571,41 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--infer-new', action='store_true', default=False,
                         help='re-infers new features from SSL model (takes long time)')
     parser.add_argument('-eaf', '--extract_aug_features', action='store_true', default=False, help='Extracts features for CIFAR10, Aircraft, Cars')
-
+    parser.add_argument('-e', '--ensemble', action='store_true', default=False, help='Uses non-random dataset loaders \
+         for ensembling and collects training accuracies per model into results/ensemble directory.')
+    
     args = parser.parse_args()
     args.norm = not args.no_norm
     pprint(args)
     torch.cuda.empty_cache()
-
+    
     if args.extract_aug_features:
         extract_aug_features()
         exit()
-
+    
     # load pretrained model
     model = get_model(args.model, args)
-
+    
     # load dataset
     dset, data_dir, num_classes, metric = LINEAR_DATASETS[args.dataset]
-
+    
     # get transform for augmentation
     transform = get_transform(args.image_size, args.norm, args.aug)
-
+    
     # get dataset loaders
     train_loader, val_loader, trainval_loader, test_loader = prepare_data(
         dset, data_dir, args.batch_size, transform, dataset_size=args.dataset_size)
-
+    
     # create results directory
     results_dir = os.path.join(os.getcwd(), "results", args.model, args.dataset, args.aug)
     if not os.path.exists(results_dir):
         os.makedirs(results_dir, exist_ok=True)
-
-
+    
+    
     # evaluate model on dataset by fitting logistic regression
-    tester = LinearTester(model, train_loader, val_loader, trainval_loader, test_loader, args.batch_size,
+    tester = LinearTester(model, args.model, train_loader, val_loader, trainval_loader, test_loader, args.batch_size,
                         metric, args.device, num_classes, results_dir, wd_range=torch.logspace(-6, 5, args.wd_values))
-
+    
     if args.C is None:
         # tune hyperparameters
         tester.validate(args.infer_new)
@@ -586,7 +615,7 @@ if __name__ == "__main__":
     # use best hyperparameters to finally evaluate the model
     test_acc, test_mean_class_acc, C = tester.evaluate(args.infer_new)
     print(f'Final accuracy for {args.model} on {args.dataset}: {test_acc:.2f}% using hyperparameter C: {C:.3f}')
-
+    
     summary = {}
     summary['Augmentation'] = args.aug
     summary['transform'] = transform
