@@ -10,6 +10,8 @@ New arguments added:
 
 * --dataset-size runs training and testing on <dataset-size> % of your train and test dataset.
 
+* --ensemble generates pickles and csv files required for ensembling
+
 * By default, if features already exist in results folder for a particular dataset and augmentation, 
 linear.py will get these features and fit logReg classifier on them. 
 If features don't exist, linear.py will infer features from SSL model (This can take time depending on --dataset-size). 
@@ -32,3 +34,7 @@ linear.py outputs:
 * y_test.pkl: size:(n_samples, 1) groundtruth class labels for test dataset
 * y_pred_labels: size:(n_samples, 1) class labels predicted by logistic regressor on test dataset
 * y_pred_probabilities.pkl: size:(n_samples, num_classes) class probabilities predicted by logistic regressor on test dataset
+
+Acknowledgements:
+
+Parts of this code were borrowed from: [SSL-Transfer](https://github.com/linusericsson/ssl-transfer.git)
