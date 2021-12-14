@@ -1,3 +1,20 @@
+"""
+CSC2515 project 2021
+
+Collaborators:
+Barza Nisar
+Yash Kant
+Pavel Golikov
+Pranav Khanolkar
+Bandavya Gowra
+
+Some modules of this code has been borrowed from https://github.com/linusericsson/ssl-transfer
+
+This file loads pretrained SSL models and dataset
+and evaluates the model by training a logistic regression classifier on its features.
+
+"""
+
 #!/usr/bin/env python
 # coding: utf-8
 
@@ -202,6 +219,9 @@ class LinearTester():
             if test_acc > best_score:
                 best_score = test_acc
                 self.best_params['C'] = C
+
+    def infer(self):
+        self.get_features(self.trainval_loader, self.test_loader, self.model, infer_new=True)
 
     def evaluate(self, infer_new=False):
         print(f"Best hyperparameters {self.best_params}")
@@ -584,6 +604,7 @@ if __name__ == "__main__":
         # use the weight decay value supplied in arguments
         tester.best_params = {'C': args.C}
     # use best hyperparameters to finally evaluate the model
+    #tester.infer()
     test_acc, test_mean_class_acc, C = tester.evaluate(args.infer_new)
     print(f'Final accuracy for {args.model} on {args.dataset}: {test_acc:.2f}% using hyperparameter C: {C:.3f}')
 
