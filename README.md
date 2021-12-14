@@ -32,3 +32,5 @@ linear.py outputs:
 * y_test.pkl: size:(n_samples, 1) groundtruth class labels for test dataset
 * y_pred_labels: size:(n_samples, 1) class labels predicted by logistic regressor on test dataset
 * y_pred_probabilities.pkl: size:(n_samples, num_classes) class probabilities predicted by logistic regressor on test dataset
+
+Credits: Some modules of this code has been borrowed from https://github.com/linusericsson/ssl-transfer
