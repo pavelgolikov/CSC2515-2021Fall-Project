@@ -178,7 +178,7 @@ def download_pretrained_models(pretrained_models_path='models'):
 if __name__ == '__main__':
     os.makedirs("./models", exist_ok=True)
     print('Warning, SimCLR-v1 and SimCLR-v2 models need to be downloaded manually and converted into PyTorch format.')
-    print('Use https://github.com/Separius/SimCLRv2-Pytorch for downloading the SimCLR-v2 model and its conversion to PyTorch compatible format.')
+    print('Use https://github.com/Separius/SimCLRv2-Pytorch for downloading the SimCLR-v2 model (r50_1x_sk0) and its conversion to PyTorch compatible format.')
     # download models from URLs
     download_pretrained_models()
     if os.path.isfile('models/byol.pkl'):
