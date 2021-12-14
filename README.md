@@ -12,8 +12,6 @@ New arguments added:
 
 * --ensemble generates pickles and csv files required for ensembling
 
-* --Out-of-distribution testing: First run the linear.py to obtain the outputs (refer to linear.py) for the models and the datasets. Run the out_of_distribution_testing.py  to obtain the plot.
-
 * By default, if features already exist in results folder for a particular dataset and augmentation, 
 linear.py will get these features and fit logReg classifier on them. 
 If features don't exist, linear.py will infer features from SSL model (This can take time depending on --dataset-size). 
@@ -25,7 +23,8 @@ If features don't exist, linear.py will infer features from SSL model (This can 
 * Don't forget to rename aircraft dataset folder
 
 * Download Cars dataset from https://ai.stanford.edu/~jkrause/cars/car_dataset.html (both test and train) and extract it in ../data/Cars
-
+  
+* Out-of-distribution testing: First run the linear.py to obtain the outputs (refer to linear.py) for the models and the datasets. Run the out_of_distribution_testing.py  to obtain the plot.
 
 
 linear.py outputs:
